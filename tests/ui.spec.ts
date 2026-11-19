@@ -137,3 +137,26 @@ test("anonymous report yields a private ticket rather than exposing the inbox", 
   ).toBe(401);
   await context.close();
 });
+
+test("Byte and Bug identify the two demo roles on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try the interactive demo" }).click();
+  const dev = page.getByRole("button", { name: "Developer", exact: true });
+  const tester = page.getByRole("button", { name: "Tester", exact: true });
+  await expect(dev).toHaveText(/Developer.*Byte/);
+  await expect(tester).toHaveText(/Tester.*Bug/);
+  await expect(dev).toHaveAttribute("aria-pressed", "true");
+  await expect(dev.locator(".role-mascot")).toHaveCSS(
+    "background-image",
+    /byte-and-bug\.png/,
+  );
+  expect((await page.request.get("/mascots/byte-and-bug.png")).ok()).toBe(true);
+  await tester.click();
+  await expect(tester).toHaveAttribute("aria-pressed", "true");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+});

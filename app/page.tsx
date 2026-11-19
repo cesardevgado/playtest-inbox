@@ -87,6 +87,30 @@ function Badge({ status }: { status: string }) {
     </span>
   );
 }
+type Role = "developer" | "tester";
+const roleNames = {
+  developer: { label: "Developer", mascot: "Byte" },
+  tester: { label: "Tester", mascot: "Bug" },
+} as const;
+
+function RoleMascot({ role }: { role: Role }) {
+  return (
+    <span className={`role-mascot role-mascot--${role}`} aria-hidden="true" />
+  );
+}
+
+function RoleStamp({ role }: { role: Role }) {
+  const { label, mascot } = roleNames[role];
+  return (
+    <span className="role-stamp">
+      <RoleMascot role={role} />
+      <span>
+        <strong>{mascot}</strong> · {label}
+      </span>
+    </span>
+  );
+}
+
 function DateLabel({ value }: { value: string }) {
   const date = new Date(value);
   return (
@@ -107,7 +131,7 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState("all");
   const [buildFilter, setBuildFilter] = useState("all");
-  const [role, setRole] = useState<"developer" | "tester">("developer");
+  const [role, setRole] = useState<Role>("developer");
   const [showForm, setShowForm] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [showBuild, setShowBuild] = useState(false);
@@ -646,6 +670,9 @@ export default function Home() {
               <span className="eyebrow">
                 {reportContext.projectName} / {reportContext.build.name}
               </span>
+              <div className="external-role">
+                <RoleStamp role="tester" />
+              </div>
               <h1>Found something?</h1>
               <p className="intro">
                 A clear report is the first step to a verified fix.
@@ -683,6 +710,9 @@ export default function Home() {
       ) : ticketToken ? (
         <main className="external-page ticket-page">
           <span className="eyebrow">{projectName} / YOUR PRIVATE TICKET</span>
+          <div className="external-role">
+            <RoleStamp role="tester" />
+          </div>
           {detail}
           <p className="form-hint">
             Keep this link private. It grants access to this report and its
@@ -816,25 +846,32 @@ export default function Home() {
             </span>
             {workspace.mode === "demo" && (
               <div className="role-switch" aria-label="Demo perspective">
-                <button
-                  aria-pressed={role === "developer"}
-                  onClick={() => setRole("developer")}
-                >
-                  Developer
-                </button>
-                <button
-                  aria-pressed={role === "tester"}
-                  onClick={() => setRole("tester")}
-                >
-                  Tester
-                </button>
+                {(Object.keys(roleNames) as Role[]).map((view) => (
+                  <button
+                    key={view}
+                    aria-label={roleNames[view].label}
+                    aria-pressed={role === view}
+                    onClick={() => setRole(view)}
+                  >
+                    <RoleMascot role={view} />
+                    <span className="role-switch-copy">
+                      <strong>{roleNames[view].label}</strong>
+                      <small>{roleNames[view].mascot}</small>
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
           <main className="workspace">
             <section className="workspace-heading">
               <div>
-                <span className="eyebrow">PROJECT WORKSPACE</span>
+                <div className="workspace-kicker">
+                  <span className="eyebrow">PROJECT WORKSPACE</span>
+                  {workspace.mode === "private" && (
+                    <RoleStamp role="developer" />
+                  )}
+                </div>
                 <h1>
                   {workspace.project.name}
                   <span className="project-dot" />
