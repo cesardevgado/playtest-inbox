@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 type Build = { id: string; name: string; sequence: number; token: string };
@@ -93,21 +94,30 @@ const roleNames = {
   tester: { label: "Tester", mascot: "Bug" },
 } as const;
 
-function RoleMascot({ role }: { role: Role }) {
+function RoleAvatar({ role }: { role: Role }) {
   return (
-    <span className={`role-mascot role-mascot--${role}`} aria-hidden="true" />
+    <span className={`role-avatar-frame role-avatar--${role}`}>
+      <Image
+        className="role-avatar"
+        src={`/mascots/${roleNames[role].mascot.toLowerCase()}.png`}
+        alt=""
+        width={94}
+        height={94}
+        unoptimized
+      />
+    </span>
   );
 }
 
-function RoleStamp({ role }: { role: Role }) {
-  const { label, mascot } = roleNames[role];
+function RoleProfile({ role }: { role: Role }) {
   return (
-    <span className="role-stamp">
-      <RoleMascot role={role} />
-      <span>
-        <strong>{mascot}</strong> · {label}
+    <div className={`role-profile role-profile--${role}`}>
+      <RoleAvatar role={role} />
+      <span className="role-profile-copy">
+        <strong>{roleNames[role].mascot}</strong>
+        <small>{roleNames[role].label}</small>
       </span>
-    </span>
+    </div>
   );
 }
 
@@ -125,6 +135,7 @@ function DateLabel({ value }: { value: string }) {
 export default function Home() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [loading, setLoading] = useState(true);
+  const [demoOnly, setDemoOnly] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -170,6 +181,9 @@ export default function Home() {
     setProjectName(data.projectName || "Playtest report");
   }, []);
   useEffect(() => {
+    api("/api/config")
+      .then((data) => setDemoOnly(data.demoOnly === true))
+      .catch(() => {});
     const params = new URLSearchParams(window.location.search);
     const report = params.get("report");
     const token = params.get("ticket");
@@ -280,9 +294,11 @@ export default function Home() {
         actual: form.get("actual"),
       });
       setSubmittedLink(
-        window.location.origin +
-          "/?ticket=" +
-          encodeURIComponent(data.reportToken),
+        data.reportToken
+          ? window.location.origin +
+              "/?ticket=" +
+              encodeURIComponent(data.reportToken)
+          : "",
       );
       if (!reportToken) {
         await refresh(data.id);
@@ -583,11 +599,29 @@ export default function Home() {
     </article>
   );
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-theme={
+        reportToken || ticketToken
+          ? "tester"
+          : workspace
+            ? workspace.mode === "private"
+              ? "developer"
+              : role
+            : "shared"
+      }
+    >
       <header className="site-header">
         <a className="brand" href="/" aria-label="Playtest Inbox home">
           <span className="brand-mark">
-            <Icon name="inbox" />
+            <Image
+              className="brand-logo"
+              src="/logo.png"
+              alt=""
+              width={1491}
+              height={758}
+              unoptimized
+            />
           </span>
           <span>
             playtest<span className="brand-light"> inbox</span>
@@ -611,6 +645,7 @@ export default function Home() {
               Leave workspace ↗
             </button>
           ) : (
+            demoOnly === false &&
             !reportToken &&
             !ticketToken && (
               <button
@@ -671,7 +706,7 @@ export default function Home() {
                 {reportContext.projectName} / {reportContext.build.name}
               </span>
               <div className="external-role">
-                <RoleStamp role="tester" />
+                <RoleProfile role="tester" />
               </div>
               <h1>Found something?</h1>
               <p className="intro">
@@ -711,7 +746,7 @@ export default function Home() {
         <main className="external-page ticket-page">
           <span className="eyebrow">{projectName} / YOUR PRIVATE TICKET</span>
           <div className="external-role">
-            <RoleStamp role="tester" />
+            <RoleProfile role="tester" />
           </div>
           {detail}
           <p className="form-hint">
@@ -722,6 +757,10 @@ export default function Home() {
       ) : !workspace ? (
         <main className="landing">
           <div className="hero-copy">
+            <div className="role-profiles">
+              <RoleProfile role="developer" />
+              <RoleProfile role="tester" />
+            </div>
             <span className="eyebrow">
               <span className="live-dot" />
               THE LOOP IS NOT CLOSED UNTIL IT’S TESTED.
@@ -752,7 +791,9 @@ export default function Home() {
               <Icon name="arrow" />
             </button>
             <span className="demo-footnote">
-              No sign-up. Fictional project. Your own demo session.
+              {demoOnly
+                ? "No sign-up. Use fictional details. Your demo expires after one hour."
+                : "No sign-up. Fictional project. Your own demo session."}
             </span>
           </div>
           <div className="hero-preview">
@@ -853,7 +894,7 @@ export default function Home() {
                     aria-pressed={role === view}
                     onClick={() => setRole(view)}
                   >
-                    <RoleMascot role={view} />
+                    <RoleAvatar role={view} />
                     <span className="role-switch-copy">
                       <strong>{roleNames[view].label}</strong>
                       <small>{roleNames[view].mascot}</small>
@@ -866,11 +907,11 @@ export default function Home() {
           <main className="workspace">
             <section className="workspace-heading">
               <div>
+                {workspace.mode === "private" && (
+                  <RoleProfile role="developer" />
+                )}
                 <div className="workspace-kicker">
                   <span className="eyebrow">PROJECT WORKSPACE</span>
-                  {workspace.mode === "private" && (
-                    <RoleStamp role="developer" />
-                  )}
                 </div>
                 <h1>
                   {workspace.project.name}
@@ -883,6 +924,27 @@ export default function Home() {
                 </p>
               </div>
               <div className="heading-actions">
+                {demoOnly && (
+                  <button
+                    className="text-button"
+                    disabled={busy}
+                    onClick={() =>
+                      void perform(async () => {
+                        await api("/api/demo", {});
+                        setSelectedId("");
+                        setFilter("all");
+                        setBuildFilter("all");
+                        setRole("developer");
+                        await refresh();
+                        setNotice(
+                          "Demo reset. You’re back to the sample reports.",
+                        );
+                      })
+                    }
+                  >
+                    Reset demo
+                  </button>
+                )}
                 {role === "developer" && (
                   <button
                     className="button secondary"
@@ -1073,7 +1135,7 @@ export default function Home() {
           </section>
         </div>
       )}
-      {showLogin && (
+      {demoOnly === false && showLogin && (
         <div className="modal-backdrop">
           <section
             className="modal small"

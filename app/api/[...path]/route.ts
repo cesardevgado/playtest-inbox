@@ -3,6 +3,13 @@ import { randomUUID } from "node:crypto";
 import { query, transaction } from "@/lib/db";
 import { seed, issues, event, ready, retest } from "@/lib/service";
 import {
+  appOrigin,
+  demoLifetime,
+  demoLimits,
+  publicDemo,
+  sessionCookieIsSecure,
+} from "@/lib/demo";
+import {
   session,
   sign,
   token,
@@ -21,22 +28,64 @@ function json(body: unknown, status = 200) {
     headers: { "Cache-Control": "no-store" },
   });
 }
+function secureCookie() {
+  return sessionCookieIsSecure(
+    appOrigin(),
+    process.env.COOKIE_SECURE === "true",
+    publicDemo() && process.env.NODE_ENV === "production",
+  );
+}
+async function readBody(req: NextRequest) {
+  const reader = req.body?.getReader();
+  const parts: Uint8Array[] = [];
+  let bytes = 0;
+  if (!reader) return "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes >= 16000) {
+        void reader.cancel().catch(() => {});
+        throw new HttpError(413, "Report is too large.");
+      }
+      parts.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(parts).toString("utf8");
+}
 function signed(s: Session) {
   const res = json({ ok: true });
   res.cookies.set("pi_session", sign(s), {
     httpOnly: true,
     sameSite: "strict",
-    secure: process.env.COOKIE_SECURE === "true",
+    secure: secureCookie(),
     path: "/",
-    maxAge: 8 * 60 * 60,
+    maxAge: Math.ceil((s.expires - Date.now()) / 1000),
   });
   return res;
 }
 async function handler(req: NextRequest) {
   try {
     const path = req.nextUrl.pathname.replace(/^\/api\//, "");
+    const demoOnly = publicDemo();
     const s = session(req);
+    if (demoOnly && ["login", "report", "ticket"].includes(path)) {
+      return json(
+        {
+          error: "Private sign-in and shared links are disabled in this demo.",
+        },
+        404,
+      );
+    }
     if (req.method === "GET") {
+      if (path === "config") return json({ demoOnly });
+      if (path === "health") {
+        await query("SELECT 1");
+        return json({ ok: true });
+      }
       if (path === "workspace") {
         demand(s, 401, "Start a demo or sign in to your workspace.");
         const project = (
@@ -87,15 +136,13 @@ async function handler(req: NextRequest) {
       return json({ error: "Not found." }, 404);
     }
     const origin = req.headers.get("origin");
-    const expected = process.env.APP_ORIGIN || "http://127.0.0.1:3000";
-    demand(origin === expected, 403, "Request origin is not allowed.");
+    demand(origin === appOrigin(), 403, "Request origin is not allowed.");
     demand(
       req.headers.get("content-type")?.includes("application/json"),
       415,
       "Send JSON.",
     );
-    const raw = await req.text();
-    demand(Buffer.byteLength(raw) < 16000, 413, "Report is too large.");
+    const raw = await readBody(req);
     let data;
     try {
       data = JSON.parse(raw);
@@ -110,16 +157,14 @@ async function handler(req: NextRequest) {
     // In-process abuse limits: sufficient for local prototype; not a distributed rate limiter.
     if (path === "demo") {
       throttle("demo", 30);
-      await query(
-        "DELETE FROM projects WHERE mode='demo' AND created_at < now() - interval '24 hours'",
-      );
       const id = randomUUID();
-      await seed(id, "demo");
-      return signed({
-        projectId: id,
-        mode: "demo",
-        expires: Date.now() + 8 * 3600000,
-      });
+      const expires = Date.now() + (demoOnly ? demoLifetime : 8 * 3600000);
+      await seed(
+        id,
+        "demo",
+        demoOnly && s?.mode === "demo" ? s.projectId : undefined,
+      );
+      return signed({ projectId: id, mode: "demo", expires });
     }
     if (path === "login") {
       throttle("login", 10);
@@ -147,20 +192,15 @@ async function handler(req: NextRequest) {
       res.cookies.set("pi_session", "", {
         path: "/",
         maxAge: 0,
+        secure: secureCookie(),
         httpOnly: true,
         sameSite: "strict",
       });
       return res;
     }
     if (path === "issues") {
+      if (demoOnly) demand(s?.mode === "demo", 401, "Start a demo first.");
       const buildToken = field(data.buildToken, "Build link", 100);
-      throttle("report:" + buildToken, 15);
-      const b = (
-        await query("SELECT id,project_id FROM builds WHERE token=$1", [
-          buildToken,
-        ])
-      )[0];
-      demand(b, 404, "Feedback link not found.");
       const title = field(data.title, "Title", 140),
         steps = field(data.steps, "Steps"),
         expected = field(data.expected, "Expected behavior"),
@@ -168,6 +208,33 @@ async function handler(req: NextRequest) {
       const id = randomUUID(),
         rt = token();
       await transaction(async (db) => {
+        const b = (
+          await db.query(
+            "SELECT id,project_id FROM builds WHERE token=$1 AND ($2::text IS NULL OR project_id=$2)",
+            [buildToken, demoOnly ? s!.projectId : null],
+          )
+        ).rows[0];
+        demand(b, 404, "Feedback link not found.");
+        throttle("report:" + buildToken, 15);
+        if (demoOnly) {
+          const project = (
+            await db.query("SELECT id FROM projects WHERE id=$1 FOR UPDATE", [
+              b.project_id,
+            ])
+          ).rows[0];
+          demand(project, 401, "Your demo expired. Start a new one.");
+          const count = (
+            await db.query(
+              "SELECT COUNT(*)::int AS count FROM issues WHERE project_id=$1",
+              [b.project_id],
+            )
+          ).rows[0].count;
+          demand(
+            count < demoLimits.issues,
+            400,
+            "This demo inbox is full. Reset it to try again.",
+          );
+        }
         await db.query(
           "INSERT INTO issues(id,project_id,title,steps,expected,actual,status,reported_build_id,report_token) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
           [
@@ -184,7 +251,7 @@ async function handler(req: NextRequest) {
         );
         await event(db, id, "reported", b.id, "New playtest report.");
       });
-      return json({ id, reportToken: rt }, 201);
+      return json(demoOnly ? { id } : { id, reportToken: rt }, 201);
     }
     const readyMatch = path.match(/^issues\/([^/]+)\/ready$/);
     if (readyMatch) {
@@ -205,7 +272,8 @@ async function handler(req: NextRequest) {
         "Choose verified or reopened.",
       );
       demand(
-        typeof data.reportToken === "string" || s?.mode === "demo",
+        s?.mode === "demo" ||
+          (!demoOnly && typeof data.reportToken === "string"),
         401,
         "Use your private ticket link to submit a retest.",
       );
@@ -213,7 +281,9 @@ async function handler(req: NextRequest) {
         retestMatch[1],
         data.outcome,
         field(data.note, "Retest note"),
-        typeof data.reportToken === "string" ? data.reportToken : undefined,
+        !demoOnly && typeof data.reportToken === "string"
+          ? data.reportToken
+          : undefined,
         s?.mode === "demo" ? s.projectId : undefined,
       );
       return json({ ok: true });
@@ -222,9 +292,12 @@ async function handler(req: NextRequest) {
       demand(s, 401, "Sign in to create a build.");
       const name = field(data.name, "Build name", 80);
       const build = await transaction(async (db) => {
-        await db.query("SELECT id FROM projects WHERE id=$1 FOR UPDATE", [
-          s.projectId,
-        ]);
+        const project = (
+          await db.query("SELECT id FROM projects WHERE id=$1 FOR UPDATE", [
+            s.projectId,
+          ])
+        ).rows[0];
+        demand(project, 401, "Your demo expired. Start a new one.");
         const count = (
           await db.query(
             "SELECT COALESCE(MAX(sequence),0)::int AS number FROM builds WHERE project_id=$1",
@@ -232,9 +305,11 @@ async function handler(req: NextRequest) {
           )
         ).rows[0].number;
         demand(
-          count < 100,
+          count < (demoOnly ? demoLimits.builds : 100),
           400,
-          "This prototype supports up to 100 builds per workspace.",
+          demoOnly
+            ? "This demo has reached its build limit. Reset it to try again."
+            : "This prototype supports up to 100 builds per workspace.",
         );
         return (
           await db.query(

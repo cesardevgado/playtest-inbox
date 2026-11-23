@@ -2,6 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "pg";
 import path from "node:path";
 import fs from "node:fs";
+import { publicDemo } from "./demo";
 export type Row = Record<string, any>;
 export type DB = {
   query: (sql: string, params?: any[]) => Promise<{ rows: Row[] }>;
@@ -22,7 +23,7 @@ type Store = {
 const g = globalThis as unknown as { store?: Store };
 export function store(): Store {
   if (g.store) return g.store;
-  if (process.env.DATABASE_URL) {
+  if (!publicDemo() && process.env.DATABASE_URL) {
     const pool = new Pool({ connectionString: process.env.DATABASE_URL });
     g.store = {
       db: pool,
@@ -45,8 +46,9 @@ export function store(): Store {
   } else {
     const dir =
       process.env.PGLITE_PATH || path.join(process.cwd(), ".data", "postgres");
-    fs.mkdirSync(path.dirname(dir), { recursive: true });
-    const pg = new PGlite(dir);
+    // The public demo never opens a private database or persists visitor input.
+    if (!publicDemo()) fs.mkdirSync(path.dirname(dir), { recursive: true });
+    const pg = publicDemo() ? new PGlite() : new PGlite(dir);
     g.store = {
       db: pg as DB,
       ready: pg.exec(schema),

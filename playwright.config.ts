@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: "**/demo-only.spec.ts",
   fullyParallel: false,
   workers: 1,
   use: {
@@ -16,6 +17,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       APP_ORIGIN: "http://127.0.0.1:3000",
+      DEMO_ONLY: "false",
       SESSION_SECRET: "local-test-session-secret-not-for-real-deployment",
       DEVELOPER_PASSWORD: "local-test-password-for-ci-only",
     },

@@ -14,6 +14,7 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:demo
       - run: npm run build
         env:
           SESSION_SECRET: ci-build-only-secret-not-a-deployment-secret

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DB, Row, query, transaction } from "./db";
 import { token, demand } from "./security";
+import { demoLifetime, demoLimits, publicDemo } from "./demo";
 export async function event(
   db: DB,
   id: string,
@@ -13,8 +14,41 @@ export async function event(
     [randomUUID(), id, kind, build, note],
   );
 }
-export async function seed(id: string, mode: "demo" | "private") {
+export async function seed(
+  id: string,
+  mode: "demo" | "private",
+  replaceDemo?: string,
+) {
   await transaction(async (db) => {
+    const demoOnly = publicDemo();
+    demand(
+      !demoOnly || mode === "demo",
+      404,
+      "Private workspaces are not available here.",
+    );
+    if (mode === "demo") {
+      const cutoff = new Date(
+        Date.now() - (demoOnly ? demoLifetime : 24 * demoLifetime),
+      );
+      const params = [cutoff.toISOString(), replaceDemo ?? ""];
+      const expiredOrReplaced = "mode='demo' AND (created_at <= $1 OR id=$2)";
+      // Remove issues and their events before removing the referenced builds.
+      await db.query(
+        `DELETE FROM issues WHERE project_id IN (SELECT id FROM projects WHERE ${expiredOrReplaced})`,
+        params,
+      );
+      await db.query(`DELETE FROM projects WHERE ${expiredOrReplaced}`, params);
+    }
+    if (demoOnly) {
+      const count = (
+        await db.query("SELECT COUNT(*)::int AS count FROM projects")
+      ).rows[0].count;
+      demand(
+        count < demoLimits.sessions,
+        503,
+        "The demo is at capacity. Try again later.",
+      );
+    }
     const inserted = await db.query(
       "INSERT INTO projects(id,name,mode) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING id",
       [id, mode === "demo" ? "Moonlight Courier" : "My playtest", mode],

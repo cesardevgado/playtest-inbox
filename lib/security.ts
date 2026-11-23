@@ -5,6 +5,7 @@ import {
   createHash,
 } from "node:crypto";
 import { NextRequest } from "next/server";
+import { publicDemo } from "./demo";
 const g = globalThis as unknown as {
   localSecret?: string;
   limits?: Map<string, { count: number; until: number }>;
@@ -49,7 +50,7 @@ export function session(req: NextRequest): Session | null {
       return null;
     const s = JSON.parse(Buffer.from(body, "base64url").toString());
     return s.expires > Date.now() &&
-      (s.mode === "demo" || s.mode === "private") &&
+      (s.mode === "demo" || (s.mode === "private" && !publicDemo())) &&
       typeof s.projectId === "string"
       ? s
       : null;

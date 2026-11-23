@@ -4,7 +4,7 @@
 
 Playtest Inbox is a build-aware feedback tool for indie developers. Testers report without an account. Developers nominate a newer build for retesting. Testers verify the fix or reopen the issue, preserving the original report and every attempt.
 
-This is a local portfolio MVP, not a deployed service. All demo content is fictional. Nothing connects to a game, emails a tester, or publishes to GitHub.
+This is a portfolio MVP. All sample content is fictional. Nothing connects to a game, emails a tester, or publishes to GitHub.
 
 ## Try it in two minutes
 
@@ -33,6 +33,18 @@ No Docker or external account is required for this first run. By default, **PGli
 - Transactional updates and conflict handling for repeated or concurrent retest submissions.
 - Responsive, keyboard-accessible interface; browser/API test suite and CI configuration.
 
+## Host the public demo on Render
+
+The hosted demo keeps the same codebase, but disables private sign-in and external report/ticket links on the server. Visitors can still report an issue, mark a fix ready, and verify or reopen it by switching roles. Every browser starts with separate fictional data. **Reset demo** restores the samples immediately; each session expires after one hour. The demo uses an in-memory database, so restarts and idle spin-downs discard all demo data. Do not enter actual playtest feedback.
+
+1. Push the code and artwork (but not any secrets or data) to a Git repository Render can access. It can stay private.
+2. Create a [Render Web Service](https://render.com/docs/web-services) using the **Node** runtime and a single instance. Starting on Free is suitable if you accept [idle cold starts and resets](https://render.com/docs/free).
+3. Set the build command to `npm ci --include=dev && npm run build -- --webpack`, start command to `npm run start:render`, and health check path to `/api/health`.
+4. Under Environment, set `DEMO_ONLY=true` and generate a unique `SESSION_SECRET` of at least 32 random characters (for example, run `openssl rand -hex 32` locally and paste only the output into Render). Use Node 24; set `NODE_VERSION=24.18.0` to match local release checks. Leave `DATABASE_URL` and `DEVELOPER_PASSWORD` unset. Render provides the port and HTTPS origin automatically; for a custom domain set `APP_ORIGIN` to that exact origin without a trailing slash.
+5. Before sharing the link, open it in two separate signed-out browser profiles. Start both demos. Verify an issue in one, confirm the second is unchanged, then reset the first to the sample state. Confirm there is no developer sign-in.
+
+For a local test of the public mode, start `DEMO_ONLY=true npm run dev`. Stop any existing Next.js dev instance first, or run the focused scenario in a disposable checkout using `npm run test:demo`.
+
 ## Private local workspace
 
 `npm run setup` writes random credentials into ignored `.env.local`, without overwriting existing configuration. Use the `DEVELOPER_PASSWORD` value there to sign in. The private workspace starts empty with two builds. Share a build feedback link with a tester; after submitting, they must keep their private ticket link to return and retest. A developer cannot verify their own fix in private mode merely by being signed in: the reporter ticket is required. Demo mode intentionally allows both roles.
@@ -57,6 +69,7 @@ npm run format:check
 npm run typecheck
 npx playwright install chromium
 npm test
+npm run test:demo
 npm run build
 npm start
 ```
@@ -76,4 +89,4 @@ See [verification status](docs/validation.md), [design decisions](docs/decisions
 
 ## Scope and next steps
 
-The first milestone is one report verified against a later build. No screenshots, uploads, GitHub sync, game plugin, email delivery, organizations or billing. Before a public release: select an open-source license, review the security checklist, configure hosting/database/secrets, and add a real authentication provider if supporting multiple developers. No license is selected by this initial scaffold; make that decision before public distribution.
+The first milestone is one report verified against a later build. No screenshots, uploads, GitHub sync, game plugin, email delivery, organizations or billing. Before releasing the source publicly, select a license. Before hosting real reports or supporting multiple developers, review the security checklist and add a real authentication provider.
