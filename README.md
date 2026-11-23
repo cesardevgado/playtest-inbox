@@ -35,7 +35,7 @@ No Docker or external account is required for this first run. By default, **PGli
 
 ## Host the public demo on Render
 
-The hosted demo keeps the same codebase, but disables private sign-in and external report/ticket links on the server. Visitors can still report an issue, mark a fix ready, and verify or reopen it by switching roles. Every browser starts with separate fictional data. **Reset demo** restores the samples immediately; each session expires after one hour. The demo uses an in-memory database, so restarts and idle spin-downs discard all demo data. Do not enter actual playtest feedback.
+The hosted demo keeps the same codebase, but disables private sign-in and external report/ticket links on the server. Visitors can still report an issue, mark a fix ready, and verify or reopen it by switching roles. Every browser starts with separate fictional data. **Reset demo** restores the samples immediately; each session expires after one hour. The public demo uses Node’s built-in in-memory SQLite, so restarts and idle spin-downs discard all demo data. Do not enter actual playtest feedback.
 
 1. Push the code and artwork (but not any secrets or data) to a Git repository Render can access. It can stay private.
 2. Create a [Render Web Service](https://render.com/docs/web-services) using the **Node** runtime and a single instance. Starting on Free is suitable if you accept [idle cold starts and resets](https://render.com/docs/free).

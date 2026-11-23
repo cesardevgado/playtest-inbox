@@ -176,3 +176,37 @@ test("production demo requires secure cookies except on local HTTP previews", ()
     sessionCookieIsSecure("http://localhost.example.com", false, true),
   ).toBe(true);
 });
+
+test("concurrent demo writes preserve unique builds and a single retest result", async ({
+  request,
+}) => {
+  expect((await post(request, "demo")).ok()).toBeTruthy();
+  const workspace = await (await request.get("/api/workspace")).json();
+  const ready = workspace.issues.find(
+    (issue: { status: string }) => issue.status === "ready",
+  );
+  const buildResponses = await Promise.all([
+    post(request, "builds", { name: "Duplicate build" }),
+    post(request, "builds", { name: "Duplicate build" }),
+  ]);
+  expect(buildResponses.map((response) => response.status()).sort()).toEqual([
+    201, 409,
+  ]);
+  const retestResponses = await Promise.all([
+    post(request, `issues/${ready.id}/retest`, {
+      outcome: "verified",
+      note: "Works.",
+    }),
+    post(request, `issues/${ready.id}/retest`, {
+      outcome: "verified",
+      note: "Still works.",
+    }),
+  ]);
+  expect(retestResponses.map((response) => response.status()).sort()).toEqual([
+    200, 409,
+  ]);
+  const after = await (await request.get("/api/workspace")).json();
+  expect(
+    after.issues.find((issue: { id: string }) => issue.id === ready.id).status,
+  ).toBe("verified");
+});

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { query, transaction } from "@/lib/db";
+import { query, transaction, rowLock } from "@/lib/db";
 import { seed, issues, event, ready, retest } from "@/lib/service";
 import {
   appOrigin,
@@ -210,7 +210,7 @@ async function handler(req: NextRequest) {
       await transaction(async (db) => {
         const b = (
           await db.query(
-            "SELECT id,project_id FROM builds WHERE token=$1 AND ($2::text IS NULL OR project_id=$2)",
+            "SELECT id,project_id FROM builds WHERE token=$1 AND (CAST($2 AS TEXT) IS NULL OR project_id=$2)",
             [buildToken, demoOnly ? s!.projectId : null],
           )
         ).rows[0];
@@ -218,14 +218,14 @@ async function handler(req: NextRequest) {
         throttle("report:" + buildToken, 15);
         if (demoOnly) {
           const project = (
-            await db.query("SELECT id FROM projects WHERE id=$1 FOR UPDATE", [
+            await db.query(`SELECT id FROM projects WHERE id=$1${rowLock()}`, [
               b.project_id,
             ])
           ).rows[0];
           demand(project, 401, "Your demo expired. Start a new one.");
           const count = (
             await db.query(
-              "SELECT COUNT(*)::int AS count FROM issues WHERE project_id=$1",
+              "SELECT CAST(COUNT(*) AS INTEGER) AS count FROM issues WHERE project_id=$1",
               [b.project_id],
             )
           ).rows[0].count;
@@ -293,14 +293,14 @@ async function handler(req: NextRequest) {
       const name = field(data.name, "Build name", 80);
       const build = await transaction(async (db) => {
         const project = (
-          await db.query("SELECT id FROM projects WHERE id=$1 FOR UPDATE", [
+          await db.query(`SELECT id FROM projects WHERE id=$1${rowLock()}`, [
             s.projectId,
           ])
         ).rows[0];
         demand(project, 401, "Your demo expired. Start a new one.");
         const count = (
           await db.query(
-            "SELECT COALESCE(MAX(sequence),0)::int AS number FROM builds WHERE project_id=$1",
+            "SELECT CAST(COALESCE(MAX(sequence),0) AS INTEGER) AS number FROM builds WHERE project_id=$1",
             [s.projectId],
           )
         ).rows[0].number;
@@ -323,7 +323,8 @@ async function handler(req: NextRequest) {
     return json({ error: "Not found." }, 404);
   } catch (e) {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);
-    if ((e as { code?: string }).code === "23505")
+    const dbError = e as { code?: string; errcode?: number };
+    if (dbError.code === "23505" || dbError.errcode === 2067)
       return json({ error: "A build with that name already exists." }, 409);
     console.error(e);
     return json({ error: "Something went wrong. Please try again." }, 500);

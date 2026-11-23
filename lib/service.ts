@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DB, Row, query, transaction } from "./db";
+import { DB, Row, query, transaction, rowLock } from "./db";
 import { token, demand } from "./security";
 import { demoLifetime, demoLimits, publicDemo } from "./demo";
 export async function event(
@@ -41,7 +41,9 @@ export async function seed(
     }
     if (demoOnly) {
       const count = (
-        await db.query("SELECT COUNT(*)::int AS count FROM projects")
+        await db.query(
+          "SELECT CAST(COUNT(*) AS INTEGER) AS count FROM projects",
+        )
       ).rows[0].count;
       demand(
         count < demoLimits.sessions,
@@ -158,7 +160,7 @@ export async function ready(
   return transaction(async (db) => {
     const rows = (
       await db.query(
-        "SELECT i.*,b.sequence AS old_sequence FROM issues i JOIN builds b ON b.id=COALESCE(i.target_build_id,i.reported_build_id) WHERE i.id=$1 AND i.project_id=$2 FOR UPDATE OF i",
+        `SELECT i.*,b.sequence AS old_sequence FROM issues i JOIN builds b ON b.id=COALESCE(i.target_build_id,i.reported_build_id) WHERE i.id=$1 AND i.project_id=$2${rowLock("i")}`,
         [id, project],
       )
     ).rows;
@@ -197,7 +199,7 @@ export async function retest(
   return transaction(async (db) => {
     const issue = (
       await db.query(
-        "SELECT * FROM issues WHERE id=$1 AND (report_token=$2 OR project_id=$3) FOR UPDATE",
+        `SELECT * FROM issues WHERE id=$1 AND (report_token=$2 OR project_id=$3)${rowLock()}`,
         [id, reportToken || "", demoProject || ""],
       )
     ).rows[0];
