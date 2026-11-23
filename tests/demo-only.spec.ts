@@ -113,6 +113,17 @@ test("public visitor can start and reset the sample workspace without private si
   ).toHaveAttribute("aria-pressed", "true");
 });
 
+test("footer credits Cesar Delgado and links to his portfolio", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const credit = page
+    .getByRole("contentinfo")
+    .getByRole("link", { name: "Cesar Delgado" });
+  await expect(credit).toBeVisible();
+  await expect(credit).toHaveAttribute("href", "https://cesardelgado.dev");
+});
+
 test("demo limits bound submissions and preserve the sample inbox", async ({
   request,
 }) => {

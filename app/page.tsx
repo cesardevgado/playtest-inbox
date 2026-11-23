@@ -1101,7 +1101,9 @@ export default function Home() {
       )}
       <footer>
         <span>playtest inbox</span>
-        <p>Close the loop. Keep the evidence.</p>
+        <p>
+          Created by <a href="https://cesardelgado.dev">Cesar Delgado</a>
+        </p>
         <span>BUILT FOR SMALL TEAMS.</span>
       </footer>
       {showForm && (
